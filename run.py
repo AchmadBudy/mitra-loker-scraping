@@ -1,4 +1,4 @@
-import requests,time,os,sys
+import requests,time,os,sys,json
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 
@@ -28,8 +28,7 @@ def get_json(search_job):
 
 
 def main():
-    # data = get_json('Maintenance Medis')
-    data = get_json('IT Support')
+    data = get_json(os.getenv('SEARCH_JOB'))
     
     if(data['count'] == 0):
         return {
@@ -39,6 +38,23 @@ def main():
     html = data['vacancy']
 
     soup = BeautifulSoup(html, 'html.parser')
+
+    # open history.json 
+    history = ''
+    try:
+        with open('history.json', 'r') as file:
+            history = file.read()
+    except:
+        with open('history.json', 'w') as file:
+            file.write('')
+
+    # check if history.json is empty
+    if(history == ''):
+        history = '[]'
+
+    # convert history to list
+    history = eval(history)
+
 
     # get cards
     cards = soup.find_all('div', class_='col-md-6 mt-1 mb-3')
@@ -56,6 +72,24 @@ def main():
         # get tanggal
         tanggal = card.find('small').text.strip()
 
+        # check if data already in history
+        duplicate = False
+        for h in history:
+            if(h['linkTitle'] == linkTitle):
+                duplicate = True
+                break
+
+        if(duplicate):
+            continue
+
+        # put data to history
+        history.append({
+            'lokasi' : lokasi,
+            'title' : title,
+            'linkTitle' : linkTitle,
+            'tanggal' : tanggal
+        })
+
         # put data to list
         listData.append({
             'lokasi' : lokasi,
@@ -63,6 +97,10 @@ def main():
             'linkTitle' : linkTitle,
             'tanggal' : tanggal
         })
+
+    # write history to history.json
+    with open('history.json', 'w') as file:
+        file.write(json.dumps(history))
 
     return {
         'status' : True,
@@ -73,8 +111,6 @@ def main():
     }
 
 def telegram_bot_sendtext(bot_message):
-    load_dotenv()
-
     bot_token = os.getenv('TELEGRAM_BOT_TOKEN')
     bot_chat = os.getenv('TELEGRAM_CHAT_ID')
 
@@ -86,6 +122,9 @@ def telegram_bot_sendtext(bot_message):
 import sys
 
 if __name__ == "__main__":
+    load_dotenv()
+    print("Starting program...")
+    print("Checking...")
     try:
         while True:
             try:
@@ -95,12 +134,16 @@ if __name__ == "__main__":
                     listData = result['data']['listData']
                     message = f"Ada {total} lowongan baru\n"
                     for data in listData:
-                        message += f"{data['title']} ({data['lokasi']})\n{data['tanggal']}\nhttps://mitrakeluarga.jobseeker.software{data['linkTitle']}\n\n"
-                    telegram_bot_sendtext(message)
+                        message += f"{data['title']} ({data['lokasi']})\n{data['tanggal']}\n{data['linkTitle']}\n\n"
+                    
+                    # send message to telegram only if there is new data
+                    if(len(listData) > 0):
+                        telegram_bot_sendtext(message)
                 time.sleep(60*5)
             except Exception as e:
                 # send error message to telegram
                 telegram_bot_sendtext(f"Hey ada error nih\n{e}")
+                time.sleep(60*2)
     except KeyboardInterrupt:
         print("\nCtrl+C pressed. Exiting program.")
         sys.exit(0)
